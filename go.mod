@@ -1,4 +1,4 @@
-module github.com/erpart/go-sprite
+module github.com/erparts/go-sprite
 
 go 1.14
 

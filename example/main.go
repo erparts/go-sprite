@@ -3,7 +3,7 @@ package main
 import (
 	"log"
 
-	"github.com/erpart/go-sprite"
+	"github.com/erparts/go-sprite"
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
 
