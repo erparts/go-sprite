@@ -24,14 +24,14 @@ const (
 // File contains all properties of an exported aseprite file. ImagePath is the absolute path to the image as reported by the exported
 // Aseprite JSON data. Path is the string used to open the File if it was opened with the Open() function; otherwise, it's blank.
 type File struct {
-	Path                    string  // Path to the file (exampleSprite.json); blank if the *File was loaded using Read().
-	ImagePath               string  // Path to the image associated with the Aseprite file (exampleSprite.png).
-	Width, Height           int32   // Overall width and height of the File.
-	FrameWidth, FrameHeight int32   // Width and height of the frames in the File.
-	Frames                  []Frame // The animation Frames present in the File.
-	Tags                    []Tag   // A map of Tags, with their names being the keys.
-	Layers                  []Layer // A slice of Layers.
-	Slices                  []Slice // A slice of the Slices present in the file.
+	Path                    string          // Path to the file (exampleSprite.json); blank if the *File was loaded using Read().
+	ImagePath               string          // Path to the image associated with the Aseprite file (exampleSprite.png).
+	Width, Height           int32           // Overall width and height of the File.
+	FrameWidth, FrameHeight int32           // Width and height of the frames in the File.
+	Frames                  []Frame         // The animation Frames present in the File.
+	Tags                    map[string]*Tag // A map of Tags, with their names being the keys.
+	Layers                  []Layer         // A slice of Layers.
+	Slices                  []Slice         // A slice of the Slices present in the file.
 }
 
 // Open will use os.ReadFile() to open the Aseprite JSON file path specified to parse the data. Returns a *goaseprite.File.
@@ -49,7 +49,6 @@ func Open(jsonPath string) (*File, error) {
 
 	f.Path = jsonPath
 	return f, nil
-
 }
 
 // Read returns a *goaseprite.File for a given sequence of bytes read from an Aseprite JSON file.
@@ -108,25 +107,27 @@ func (f *File) decode(data []byte) error {
 		}
 	}
 
+	f.Tags = make(map[string]*Tag, 0)
+
 	// Default ("") animation
-	f.Tags = append(f.Tags, Tag{
+	f.Tags[""] = &Tag{
 		Name:      "",
 		Start:     0,
 		End:       len(f.Frames) - 1,
 		Direction: PlayForward,
 		File:      f,
-	})
+	}
 
 	for _, anim := range gjson.Get(json, "meta.frameTags").Array() {
 		animName := anim.Get("name").Str
-		f.Tags = append(f.Tags, Tag{
+
+		f.Tags[animName] = &Tag{
 			Name:      animName,
 			Start:     int(anim.Get("from").Num),
 			End:       int(anim.Get("to").Num),
-			Direction: anim.Get("direction").Str,
+			Direction: Direction(anim.Get("direction").Str),
 			File:      f,
-		})
-
+		}
 	}
 
 	for _, sliceData := range gjson.Get(json, "meta.slices").Array() {

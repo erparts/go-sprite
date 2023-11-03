@@ -13,7 +13,7 @@ var (
 type Player struct {
 	File           *File
 	PlaySpeed      float32 // The playback speed; altering this can be used to globally slow down or speed up animation playback.
-	CurrentTag     Tag     // The currently playing animation.
+	CurrentTag     *Tag    // The currently playing animation.
 	FrameIndex     int     // The current frame of the File's animation / tag playback.
 	PrevFrameIndex int     // The previous frame in the playback.
 	frameCounter   float32
@@ -22,10 +22,10 @@ type Player struct {
 	prevUVY float64
 
 	// Callbacks
-	OnLoop        func()        // OnLoop gets called when the playing animation / tag does a complete loop. For a ping-pong animation, this is a full forward + back cycle.
-	OnFrameChange func()        // OnFrameChange gets called when the playing animation / tag changes frames.
-	OnTagEnter    func(tag Tag) // OnTagEnter gets called when entering a tag from "outside" of it (i.e. if not playing a tag and then it gets played, this gets called, or if you're playing a tag and you pass through another tag).
-	OnTagExit     func(tag Tag) // OnTagExit gets called when exiting a tag from inside of it (i.e. if you finish passing through a tag while playing another one).
+	OnLoop        func()         // OnLoop gets called when the playing animation / tag does a complete loop. For a ping-pong animation, this is a full forward + back cycle.
+	OnFrameChange func()         // OnFrameChange gets called when the playing animation / tag changes frames.
+	OnTagEnter    func(tag *Tag) // OnTagEnter gets called when entering a tag from "outside" of it (i.e. if not playing a tag and then it gets played, this gets called, or if you're playing a tag and you pass through another tag).
+	OnTagExit     func(tag *Tag) // OnTagExit gets called when exiting a tag from inside of it (i.e. if you finish passing through a tag while playing another one).
 
 	playDirection int
 }
@@ -56,44 +56,35 @@ func (p *Player) Clone() *Player {
 
 // Play sets the specified tag name up to be played back. A tagName of "" will play back the entire file.
 func (p *Player) Play(tagName string) error {
-	exists := false
-
-	for _, anim := range p.File.Tags {
-		if anim.Name == tagName {
-			exists = true
-
-			if anim != p.CurrentTag {
-				if !p.CurrentTag.IsEmpty() {
-					p.PrevFrameIndex = -1
-				} else {
-					p.PrevFrameIndex = p.FrameIndex
-				}
-
-				p.CurrentTag = anim
-				p.frameCounter = 0
-
-				if anim.Direction == PlayBackward {
-					p.playDirection = -1
-					p.FrameIndex = p.CurrentTag.End
-				} else {
-					p.playDirection = 1
-					p.FrameIndex = p.CurrentTag.Start
-				}
-
-				p.pollTagChanges()
-			}
-
-			break
-
-		}
-	}
-
-	if !exists {
+	t, ok := p.File.Tags[tagName]
+	if !ok {
 		return ErrNoTagByName
+
 	}
 
-	return nil
+	if p.CurrentTag == t {
+		return nil
+	}
 
+	if p.CurrentTag != nil {
+		p.PrevFrameIndex = -1
+	} else {
+		p.PrevFrameIndex = p.FrameIndex
+	}
+
+	p.CurrentTag = t
+	p.frameCounter = 0
+
+	if t.Direction == PlayBackward {
+		p.playDirection = -1
+		p.FrameIndex = p.CurrentTag.End
+	} else {
+		p.playDirection = 1
+		p.FrameIndex = p.CurrentTag.Start
+	}
+
+	p.pollTagChanges()
+	return nil
 }
 
 // Update updates the currently playing animation. dt is the delta value between the previous frame and the current frame.
@@ -142,12 +133,11 @@ func (p *Player) Update(dt float32) {
 
 		p.pollTagChanges()
 	}
-
 }
 
 // TouchingTags returns the tags currently being touched by the Player (tag).
-func (p *Player) TouchingTags() []Tag {
-	var tags []Tag
+func (p *Player) TouchingTags() []*Tag {
+	var tags []*Tag
 	for _, t := range p.File.Tags {
 		if p.FrameIndex >= t.Start && p.FrameIndex <= t.End {
 			tags = append(tags, t)
