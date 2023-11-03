@@ -3,6 +3,9 @@ package sprite
 
 import (
 	"errors"
+	"image"
+
+	"github.com/hajimehoshi/ebiten/v2"
 )
 
 var (
@@ -21,13 +24,22 @@ type Player struct {
 	prevUVX float64
 	prevUVY float64
 
-	// Callbacks
-	OnLoop        func()         // OnLoop gets called when the playing animation / tag does a complete loop. For a ping-pong animation, this is a full forward + back cycle.
-	OnFrameChange func()         // OnFrameChange gets called when the playing animation / tag changes frames.
-	OnTagEnter    func(tag *Tag) // OnTagEnter gets called when entering a tag from "outside" of it (i.e. if not playing a tag and then it gets played, this gets called, or if you're playing a tag and you pass through another tag).
-	OnTagExit     func(tag *Tag) // OnTagExit gets called when exiting a tag from inside of it (i.e. if you finish passing through a tag while playing another one).
+	// OnLoop gets called when the playing animation / tag does a complete loop. For a ping-pong
+	// animation, this is a full forward + back cycle.
+	OnLoop func(p *Player)
+	// OnFrameChange gets called when the playing animation / tag changes frames.
+	OnFrameChange func(p *Player, frame int)
+	// OnTagEnter gets called when entering a tag from "outside" of it (i.e. if not playing a
+	//tag and then it gets played, this gets called, or if you're playing a tag and you pass
+	// through another tag).
+	OnTagEnter func(p *Player, t *Tag)
+	OnTagExit  func(p *Player, t *Tag)
+
+	// OnDraw callbacl called just before drawing the sprite, if return false the draw is aborted.
+	OnDraw func(p *Player, screen, img *ebiten.Image, opts *ebiten.DrawImageOptions) bool
 
 	playDirection int
+	img           *ebiten.Image
 }
 
 // CreatePlayer returns a new animation player that plays animations from a given Aseprite file.
@@ -35,6 +47,14 @@ func (f *File) CreatePlayer() *Player {
 	return &Player{
 		File:      f,
 		PlaySpeed: 1,
+	}
+}
+
+func (f *File) CreatePlayerWithImage(img *ebiten.Image) *Player {
+	return &Player{
+		File:      f,
+		PlaySpeed: 1,
+		img:       img,
 	}
 }
 
@@ -52,6 +72,20 @@ func (p *Player) Clone() *Player {
 	newPlayer.OnTagExit = p.OnTagExit
 
 	return newPlayer
+}
+
+func (p *Player) Draw(screen *ebiten.Image) error {
+	opts := &ebiten.DrawImageOptions{}
+	sub := p.img.SubImage(image.Rect(p.CurrentFrameCoords())).(*ebiten.Image)
+
+	if p.OnDraw != nil {
+		if stop := p.OnDraw(p, screen, sub, opts); stop {
+			return nil
+		}
+	}
+
+	screen.DrawImage(sub, opts)
+	return nil
 }
 
 // Play sets the specified tag name up to be played back. A tagName of "" will play back the entire file.
@@ -111,24 +145,24 @@ func (p *Player) Update(dt float32) {
 				p.FrameIndex = anim.Start + 1
 				p.playDirection *= -1
 				if p.OnLoop != nil {
-					p.OnLoop()
+					p.OnLoop(p)
 				}
 			}
 
 		} else if p.playDirection > 0 && p.FrameIndex > anim.End {
 			p.FrameIndex -= anim.End - anim.Start + 1
 			if p.OnLoop != nil {
-				p.OnLoop()
+				p.OnLoop(p)
 			}
 		} else if p.playDirection < 0 && p.FrameIndex < anim.Start {
 			p.FrameIndex += anim.End - anim.Start + 1
 			if p.OnLoop != nil {
-				p.OnLoop()
+				p.OnLoop(p)
 			}
 		}
 
 		if p.FrameIndex != p.PrevFrameIndex && p.OnFrameChange != nil {
-			p.OnFrameChange()
+			p.OnFrameChange(p, p.FrameIndex)
 		}
 
 		p.pollTagChanges()
@@ -163,7 +197,7 @@ func (p *Player) pollTagChanges() {
 	if p.OnTagExit != nil {
 		for _, tag := range p.File.Tags {
 			if (p.PrevFrameIndex >= tag.Start && p.PrevFrameIndex <= tag.End) && (p.FrameIndex < tag.Start || p.FrameIndex > tag.End) {
-				p.OnTagExit(tag)
+				p.OnTagExit(p, tag)
 			}
 		}
 	}
@@ -171,7 +205,7 @@ func (p *Player) pollTagChanges() {
 	if p.OnTagEnter != nil {
 		for _, tag := range p.File.Tags {
 			if (p.PrevFrameIndex < tag.Start || p.PrevFrameIndex > tag.End) && (p.FrameIndex >= tag.Start && p.FrameIndex <= tag.End) {
-				p.OnTagEnter(tag)
+				p.OnTagEnter(p, tag)
 			}
 		}
 	}

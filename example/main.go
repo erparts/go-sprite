@@ -1,28 +1,48 @@
 package main
 
 import (
-	"image"
+	"log"
 
+	"github.com/erpart/go-sprite"
 	"github.com/hajimehoshi/ebiten/v2"
 	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
-	"github.com/solarlune/goaseprite"
 
 	_ "image/png"
 )
 
 type Game struct {
-	Sprite    *goaseprite.File
-	AsePlayer *goaseprite.Player
+	Sprite    *sprite.File
+	AsePlayer *sprite.Player
 	Img       *ebiten.Image
 }
 
 func NewGame() *Game {
-
-	game := &Game{
-		Sprite: goaseprite.Open("16x16Deliveryman.json"),
+	s, err := sprite.Open("16x16Deliveryman.json")
+	if err != nil {
+		log.Fatal(err)
 	}
 
-	game.AsePlayer = game.Sprite.CreatePlayer()
+	img, _, err := ebitenutil.NewImageFromFile(s.ImagePath)
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	var x float64
+	p := s.CreatePlayerWithImage(img)
+	p.OnDraw = func(p *sprite.Player, screen, img *ebiten.Image, opts *ebiten.DrawImageOptions) bool {
+		if p.CurrentTag.Name != "walk" {
+			return false
+		}
+
+		opts.GeoM.Translate(x, 0)
+		x += 1
+		return false
+	}
+
+	game := &Game{
+		Sprite:    s,
+		AsePlayer: p,
+	}
 
 	// There are four callback functions that you can use to watch for changes to the internal state of the *File.
 
@@ -38,14 +58,7 @@ func NewGame() *Game {
 	// OnTagExit is called when the File leaves the current Tag.
 	// game.Sprite.OnTagExit = func(tag *goaseprite.Tag) { fmt.Println("exited: ", tag.Name) }
 
-	img, _, err := ebitenutil.NewImageFromFile(game.Sprite.ImagePath)
-	if err != nil {
-		panic(err)
-	}
-
 	// game.Sprite.PlaySpeed = 2
-
-	game.Img = img
 
 	ebiten.SetWindowTitle("goaseprite example")
 	ebiten.SetWindowResizable(true)
@@ -72,21 +85,14 @@ func (game *Game) Update() error {
 }
 
 func (game *Game) Draw(screen *ebiten.Image) {
-
-	opts := &ebiten.DrawImageOptions{}
-
-	sub := game.Img.SubImage(image.Rect(game.AsePlayer.CurrentFrameCoords()))
-
-	screen.DrawImage(sub.(*ebiten.Image), opts)
+	game.AsePlayer.Draw(screen)
 
 }
 
 func (game *Game) Layout(w, h int) (int, int) { return 320, 180 }
 
 func main() {
-
 	game := NewGame()
-
 	ebiten.RunGame(game)
 
 }
