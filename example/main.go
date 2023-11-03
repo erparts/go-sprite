@@ -17,7 +17,7 @@ type Game struct {
 }
 
 func NewGame() *Game {
-	s, err := sprite.Open("16x16Deliveryman.json")
+	s, err := sprite.OpenAseprite("16x16Deliveryman.json")
 	if err != nil {
 		log.Fatal(err)
 	}

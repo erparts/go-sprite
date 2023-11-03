@@ -34,15 +34,15 @@ type File struct {
 	Slices                  []Slice         // A slice of the Slices present in the file.
 }
 
-// Open will use os.ReadFile() to open the Aseprite JSON file path specified to parse the data. Returns a *goaseprite.File.
+// OpenAseprite will use os.ReadFile() to open the Aseprite JSON file path specified to parse the data. Returns a *goaseprite.File.
 // This can be your starting point. Files created with Open() will put the JSON filepath used in the Path field.
-func Open(jsonPath string) (*File, error) {
+func OpenAseprite(jsonPath string) (*File, error) {
 	fileData, err := os.ReadFile(jsonPath)
 	if err != nil {
 		return nil, err
 	}
 
-	f, err := Read(fileData)
+	f, err := ReadAseprite(fileData)
 	if err != nil {
 		return nil, err
 	}
@@ -51,8 +51,8 @@ func Open(jsonPath string) (*File, error) {
 	return f, nil
 }
 
-// Read returns a *goaseprite.File for a given sequence of bytes read from an Aseprite JSON file.
-func Read(data []byte) (*File, error) {
+// ReadAseprite returns a *goaseprite.File for a given sequence of bytes read from an Aseprite JSON file.
+func ReadAseprite(data []byte) (*File, error) {
 	f := &File{}
 	return f, f.decode(data)
 
