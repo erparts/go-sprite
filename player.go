@@ -123,10 +123,11 @@ func (p *Player) Play(tagName string) error {
 
 // Update updates the currently playing animation. dt is the delta value between the previous frame and the current frame.
 func (p *Player) Update(dt float32) {
-	anim := p.CurrentTag
-	if anim.IsEmpty() {
+	if p.CurrentTag != nil {
 		return
 	}
+
+	t := p.CurrentTag
 
 	p.frameCounter += dt * p.PlaySpeed
 	frameDur := p.File.Frames[p.FrameIndex].Duration
@@ -137,25 +138,25 @@ func (p *Player) Update(dt float32) {
 		p.PrevFrameIndex = p.FrameIndex
 		p.FrameIndex += p.playDirection
 
-		if anim.Direction == PlayPingPong {
-			if p.FrameIndex > anim.End {
-				p.FrameIndex = anim.End - 1
+		if t.Direction == PlayPingPong {
+			if p.FrameIndex > t.End {
+				p.FrameIndex = t.End - 1
 				p.playDirection *= -1
-			} else if p.FrameIndex < anim.Start {
-				p.FrameIndex = anim.Start + 1
+			} else if p.FrameIndex < t.Start {
+				p.FrameIndex = t.Start + 1
 				p.playDirection *= -1
 				if p.OnLoop != nil {
 					p.OnLoop(p)
 				}
 			}
 
-		} else if p.playDirection > 0 && p.FrameIndex > anim.End {
-			p.FrameIndex -= anim.End - anim.Start + 1
+		} else if p.playDirection > 0 && p.FrameIndex > t.End {
+			p.FrameIndex -= t.End - t.Start + 1
 			if p.OnLoop != nil {
 				p.OnLoop(p)
 			}
-		} else if p.playDirection < 0 && p.FrameIndex < anim.Start {
-			p.FrameIndex += anim.End - anim.Start + 1
+		} else if p.playDirection < 0 && p.FrameIndex < t.Start {
+			p.FrameIndex += t.End - t.Start + 1
 			if p.OnLoop != nil {
 				p.OnLoop(p)
 			}
