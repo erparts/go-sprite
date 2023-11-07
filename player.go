@@ -123,12 +123,11 @@ func (p *Player) Play(tagName string) error {
 
 // Update updates the currently playing animation. dt is the delta value between the previous frame and the current frame.
 func (p *Player) Update(dt float32) {
-	if p.CurrentTag != nil {
+	if p.CurrentTag == nil {
 		return
 	}
 
 	t := p.CurrentTag
-
 	p.frameCounter += dt * p.PlaySpeed
 	frameDur := p.File.Frames[p.FrameIndex].Duration
 	p.prevUVX, p.prevUVY = p.CurrentUVCoords()
@@ -215,7 +214,7 @@ func (p *Player) pollTagChanges() {
 
 // CurrentFrame returns the current frame for the currently playing Tag in the File and a boolean indicating if the Player is playing a Tag or not.
 func (p *Player) CurrentFrame() (Frame, bool) {
-	if p.CurrentTag.IsEmpty() {
+	if p.CurrentTag == nil {
 		return Frame{}, false
 	}
 
@@ -260,7 +259,7 @@ func (p *Player) CurrentUVCoordsDelta() (float64, float64) {
 // SetFrameIndex sets the currently visible frame to frameIndex, using the playing animation as the range.
 // This means calling SetFrameIndex with a frameIndex of 2 would set it to the third frame of the animation that is currently playing.
 func (p *Player) SetFrameIndex(frameIndex int) {
-	if p.CurrentTag.IsEmpty() {
+	if p.CurrentTag == nil {
 		return
 	}
 
@@ -276,7 +275,7 @@ func (p *Player) SetFrameIndex(frameIndex int) {
 // regardless of what frame in the sprite strip that is).
 // If no animation is being played, this function will return -1.
 func (p *Player) FrameIndexInAnimation() int {
-	if p.CurrentTag.IsEmpty() {
+	if p.CurrentTag == nil {
 		return -1
 	}
 

@@ -35,26 +35,44 @@ type spridesheetImporter struct {
 func (i *spridesheetImporter) loadFile(r io.Reader) (*File, error) {
 	file := &File{}
 
+	file.Tags = make(map[string]*Tag)
+
 	var count int
 	s := bufio.NewScanner(r)
 	for s.Scan() {
-		count++
-		f, w, h := i.parseLine(s.Text())
+		f, tag, w, h := i.parseLine(s.Text())
 		file.Frames = append(file.Frames, *f)
 		file.Width = int32(w)
 		file.Height = int32(h)
 		file.FrameWidth = int32(w)
 		file.FrameHeight = int32(h)
+
+		if tag == "" {
+			continue
+		}
+
+		if _, ok := file.Tags[tag]; !ok {
+			file.Tags[tag] = &Tag{
+				Name:      tag,
+				Start:     count,
+				End:       count - 1,
+				Direction: "fordward",
+				File:      file,
+			}
+		}
+
+		file.Tags[tag].End++
+		count++
+
 	}
 
 	name := strings.Split(i.filename, ".")
 	file.ImagePath = fmt.Sprintf("%s.png", name[0])
 
-	file.Tags = make(map[string]*Tag)
 	file.Tags[""] = &Tag{
 		Name:      "",
 		Start:     0,
-		End:       count - 1,
+		End:       len(file.Frames) - 1,
 		Direction: "fordward",
 		File:      file,
 	}
@@ -62,9 +80,16 @@ func (i *spridesheetImporter) loadFile(r io.Reader) (*File, error) {
 	return file, s.Err()
 }
 
-func (i *spridesheetImporter) parseLine(line string) (*Frame, int, int) {
+func (i *spridesheetImporter) parseLine(line string) (*Frame, string, int, int) {
 	parts := strings.Split(line, "=")
-	//frame := strings.TrimSpace(parts[0])
+
+	frame := strings.TrimSpace(parts[0])
+	names := strings.Split(frame, "/")
+
+	var tag string
+	if len(names) == 2 {
+		tag = strings.TrimSpace(names[0])
+	}
 
 	var w, h int
 	f := &Frame{}
@@ -83,5 +108,5 @@ func (i *spridesheetImporter) parseLine(line string) (*Frame, int, int) {
 	}
 
 	f.Duration = i.duration
-	return f, w, h
+	return f, tag, w, h
 }

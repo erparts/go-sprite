@@ -186,10 +186,6 @@ type Slice struct {
 	Color int64
 }
 
-func (s Slice) IsEmpty() bool {
-	return len(s.Keys) == 0
-}
-
 // SliceKey represents a Slice's size and position in the Aseprite file on a specific frame. An individual Aseprite File can have multiple
 // Slices inside, which can also have multiple frames in which the Slice's position and size changes. The SliceKey's Frame indicates which
 // frame the key is operating on.
@@ -210,10 +206,6 @@ type Tag struct {
 	Start, End int
 	Direction  Direction
 	File       *File
-}
-
-func (t Tag) IsEmpty() bool {
-	return t.File == nil
 }
 
 // Layer contains details regarding the layers exported from Aseprite, including the layer's name (string), opacity (0-255), and
