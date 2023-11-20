@@ -100,7 +100,7 @@ func (p *Player) Play(tagName string) error {
 		return nil
 	}
 
-	if p.CurrentTag != nil {
+	if p.CurrentTag == nil {
 		p.PrevFrameIndex = -1
 	} else {
 		p.PrevFrameIndex = p.FrameIndex
