@@ -272,3 +272,10 @@ func TestDecimalTimingsAndReverseLoop(t *testing.T) {
 		t.Fatal(loops)
 	}
 }
+
+func TestRejectAmbiguousHashFrameOrder(t *testing.T) {
+	data := `{"frames":{"walk 0.png":{"frame":{"x":0,"y":0,"w":8,"h":8},"duration":100},"jump 0.png":{"frame":{"x":8,"y":0,"w":8,"h":8},"duration":100}},"meta":{"image":"a.png","size":{"w":16,"h":8}}}`
+	if _, err := ReadAseprite([]byte(data)); err == nil || !strings.Contains(err.Error(), "json-array") {
+		t.Fatal("ambiguous tag order accepted", err)
+	}
+}

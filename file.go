@@ -94,6 +94,17 @@ func (f *File) decode(data []byte) error {
 		for name := range byName {
 			names = append(names, name)
 		}
+		// A hash does not preserve export order. Repeated numeric suffixes across
+		// names cannot reconstruct frameTag ranges reliably; require an array.
+		numbered := map[int64]string{}
+		for _, name := range names {
+			if n, ok := asepriteFrameNumber(name); ok {
+				if prev, exists := numbered[n]; exists {
+					return fmt.Errorf("ambiguous hash frame order: %q and %q share index %d; export json-array", prev, name, n)
+				}
+				numbered[n] = name
+			}
+		}
 		// Preserve conventional Aseprite numeric ordering, with a deterministic
 		// lexical fallback for named atlas regions and names without extensions.
 		sort.Slice(names, func(i, j int) bool {

@@ -9,7 +9,8 @@ durations. Derived from [goaseprite](https://github.com/SolarLune/goaseprite).
 Export a PNG sheet and JSON metadata from Aseprite, with frame tags enabled.
 Both `json-array` and `json-hash` are accepted. Prefer arrays when animation
 order matters: array order is preserved. Hash keys use numeric frame suffixes
-when available, then lexical order for named regions.
+when available, then lexical order for named regions. Repeated numeric suffixes
+are ambiguous and rejected; export JSON arrays in that case.
 
 Disable trimming and rotation when exporting. Those layouts are explicitly
 rejected rather than rendered incorrectly. Each frame can have a different
@@ -60,6 +61,8 @@ Seeking does not change the looping behaviour of subsequent `Update` calls.
 `Draw` uses default options; `DrawWithOptions` applies caller transforms and
 colour without modifying the supplied options. `OnDraw` still runs before the
 actual draw; returning true skips it (the existing callback convention).
+Drawing without an image or active frame returns an error without invoking
+`OnDraw`; set `CurrentTag = nil` to stop playback and skip Draw while hidden.
 
 ## Programmatic sheets and compatibility
 
