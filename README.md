@@ -41,7 +41,7 @@ if err := player.DrawWithOptions(screen, &opts); err != nil {
 
 Import as `sprite "github.com/erparts/go-sprite"`. With embedded files, use
 `ReadAseprite(data)` instead of `OpenAseprite`. `File.FrameByName` exposes named
-frame metadata without creating another file. Each `Player` has independent
+frame metadata without creating another file. `ImagePath` keeps slash separators on every OS for embedded and other `fs.FS` consumers. Each `Player` has independent
 playback state, while its `File` and image can be shared.
 
 `Play("")` selects all frames. `Play` supports forward, reverse, ping-pong and reverse ping-pong

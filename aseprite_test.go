@@ -5,6 +5,7 @@ import (
 	"math"
 	"strings"
 	"testing"
+	"testing/fstest"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )
@@ -278,4 +279,17 @@ func TestRejectAmbiguousHashFrameOrder(t *testing.T) {
 	if _, err := ReadAseprite([]byte(data)); err == nil || !strings.Contains(err.Error(), "json-array") {
 		t.Fatal("ambiguous tag order accepted", err)
 	}
+}
+
+func TestImagePathWorksWithFSOnEveryOS(t *testing.T) {
+	f, err := ReadAseprite([]byte(strings.Replace(atlasJSON, "atlas.png", "textures/./sprites/../atlas.png", 1)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fs := fstest.MapFS{"textures/atlas.png": &fstest.MapFile{Data: []byte("fixture")}}
+	file, err := fs.Open(f.ImagePath)
+	if err != nil {
+		t.Fatalf("export path is not portable to fs.FS: %q: %v", f.ImagePath, err)
+	}
+	file.Close()
 }

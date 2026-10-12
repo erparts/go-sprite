@@ -3,7 +3,7 @@ package sprite
 import (
 	"fmt"
 	"os"
-	"path/filepath"
+	"path"
 	"sort"
 	"strconv"
 	"strings"
@@ -24,8 +24,9 @@ const (
 	PlayPingPongReverse Direction = "pingpong_reverse"
 )
 
-// File contains all properties of an exported aseprite file. ImagePath is the absolute path to the image as reported by the exported
-// Aseprite JSON data. Path is the string used to open the File if it was opened with the Open() function; otherwise, it's blank.
+// File contains an exported Aseprite sheet. ImagePath keeps slash separators
+// on every OS so consumers can use fs.FS. It can be relative or absolute as
+// reported by the export. Path records the argument passed to OpenAseprite.
 type File struct {
 	Path                    string          // Path to the file (exampleSprite.json); blank if the *File was loaded using Read().
 	ImagePath               string          // Path to the image associated with the Aseprite file (exampleSprite.png).
@@ -69,7 +70,7 @@ func (f *File) decode(data []byte) error {
 		return fmt.Errorf("invalid Aseprite JSON")
 	}
 
-	f.ImagePath = filepath.Clean(gjson.Get(json, "meta.image").String())
+	f.ImagePath = path.Clean(gjson.Get(json, "meta.image").String())
 
 	f.Width = int32(gjson.Get(json, "meta.size.w").Num)
 	f.Height = int32(gjson.Get(json, "meta.size.h").Num)
@@ -211,7 +212,7 @@ func (f *File) decode(data []byte) error {
 }
 
 func asepriteFrameNumber(name string) (int64, bool) {
-	stem := strings.TrimSuffix(name, filepath.Ext(name))
+	stem := strings.TrimSuffix(name, path.Ext(name))
 	n, err := strconv.ParseInt(stem[strings.LastIndex(stem, " ")+1:], 10, 64)
 	return n, err == nil
 }
