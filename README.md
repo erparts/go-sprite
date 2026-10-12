@@ -1,88 +1,88 @@
-# goaseprite
+# go-sprite
 
-[pkg.go.dev link](https://pkg.go.dev/github.com/solarlune/goaseprite)
+Aseprite JSON loading and sprite playback for Ebitengine. Reads native Aseprite
+JSON arrays and hashes, with named regions, animation tags, per-frame sizes and
+durations. Derived from [goaseprite](https://github.com/SolarLune/goaseprite).
 
-Goaseprite is a JSON loader for Aseprite files for Golang.
+## Native atlases
 
-## How To Use
+Export a PNG sheet and JSON metadata from Aseprite, with frame tags enabled.
+Both `json-array` and `json-hash` are accepted. Prefer arrays when animation
+order matters: array order is preserved. Hash keys use numeric frame suffixes
+when available, then lexical order for named regions. Repeated numeric suffixes
+are ambiguous and rejected; export JSON arrays in that case.
 
-Usage is pretty straightforward. You export a sprite sheet and its corresponding JSON data file from Aseprite (Ctrl+E). The values should be set to Hash with Frame Tags and Slices (optionally) on.
-
-Then you'll want to load the Aseprite data. To do this, you'll call `goaseprite.Open()` with a string argument of where to find the Aseprite JSON data file, or manually pass the bytes to `goaseprite.Read()`. From this, you'll get a `*goaseprite.File`, which represents an Aseprite file. It's from here that you control your animation.
-
-You can call `File.Play()` to play a tag / animation, and use the `File.Update()` function with an argument of delta time (the time between the previous frame and the current one) to update the animation. Call `File.CurrentFrame()` to get the current frame, which gives you the X and Y position of the current frame on the sprite sheet. Assuming a tag with a blank name ("") doesn't exist in your Aseprite file, `goaseprite` will create a default animation with that name, allowing you to easily play all of the frames in sequence.
-
-Here'a quick example, using [ebiten](https://ebiten.org/) for rendering:
+Disable trimming and rotation when exporting. Those layouts are explicitly
+rejected rather than rendered incorrectly. Each frame can have a different
+packed width and height. Named static regions can use single-frame tags in the
+same file as animated tags; they share one texture.
 
 ```go
-package main
-
-import (
-	"image"
-
-	"github.com/hajimehoshi/ebiten/v2"
-	"github.com/hajimehoshi/ebiten/v2/ebitenutil"
-	"github.com/solarlune/goaseprite"
-
-	_ "image/png"
-)
-
-type Game struct {
-	Sprite *goaseprite.File
-	Player *goaseprite.Player
-	Img    *ebiten.Image
+f, err := sprite.OpenAseprite("atlas.json")
+if err != nil {
+    return err
+}
+// Load f.ImagePath relative to your assets directory into *ebiten.Image.
+player := f.CreatePlayerWithImage(texture)
+if err := player.Play("walk"); err != nil {
+    return err
 }
 
-func NewGame() *Game {
+// In Update:
+player.Update(1.0 / 60)
 
-	game := &Game{
-		Sprite: goaseprite.Open("16x16Deliveryman.json"),
-	}
-	game.Player = goaseprite.NewPlayer(game.Sprite)
-
-	img, _, err := ebitenutil.NewImageFromFile(game.Sprite.ImagePath)
-	if err != nil {
-		panic(err)
-	}
-
-    game.Sprite.Play("walk")
-
-	game.Img = img
-
-	return game
-
+// In Draw:
+var opts ebiten.DrawImageOptions
+opts.GeoM.Translate(100, 80)
+if err := player.DrawWithOptions(screen, &opts); err != nil {
+    panic(err)
 }
-
-func (game *Game) Update() error {
-
-	game.Sprite.Update(float32(1.0 / 60.0))
-
-	return nil
-}
-
-func (game *Game) Draw(screen *ebiten.Image) {
-
-	opts := &ebiten.DrawImageOptions{}
-
-	sub := game.Img.SubImage(image.Rect(game.Sprite.CurrentFrameCoords()))
-
-	screen.DrawImage(sub.(*ebiten.Image), opts)
-
-}
-
-func (game *Game) Layout(w, h int) (int, int) { return 320, 180 }
-
-func main() {
-
-	ebiten.RunGame(NewGame())
-
-}
-
-
 ```
 
-You also have the ability to use `File.OnLoop`, `File.OnFrameChange`, `File.OnTagEnter`, and `File.OnTagExit` callbacks to trigger events when an animation's state changes, for example. That's roughly it!
+Import as `sprite "github.com/erparts/go-sprite"`. With embedded files, use
+`ReadAseprite(data)` instead of `OpenAseprite`. `File.FrameByName` exposes named
+frame metadata without creating another file. `ImagePath` keeps slash separators on every OS for embedded and other `fs.FS` consumers. Each `Player` has independent
+playback state, while its `File` and image can be shared.
 
-## Additional Notes
+`Play("")` selects all frames. `Play` supports forward, reverse, ping-pong and reverse ping-pong
+animation. `Update` advances through each frame's own duration and loops.
+`Play` on the active tag preserves its position; use `Restart` to rewind it.
+`Clone` shares the immutable file and texture while copying playback and callbacks.
+Aseprite tag `repeat` is currently ignored: `Update` loops until the caller stops it.
+Callbacks on the player report loops, frame changes and tag transitions.
 
-As for dependencies, GoAseprite makes use of tidwall's nice [gjson](https://github.com/tidwall/gjson) package. 
+`Seek(seconds, loop)` samples an absolute position without callbacks. With
+`loop=false` it clamps to the final frame of one cycle: a ping-pong cycle
+omits the duplicated endpoints (0,1,2,1; reverse: 2,1,0,1). This is useful for replay, paused
+previews and externally controlled clocks. `FrameProgress()` exposes the
+fraction elapsed in the current frame, including 1 at a clamped endpoint.
+Seeking does not change the looping behaviour of subsequent `Update` calls.
+
+`Draw` uses default options; `DrawWithOptions` applies caller transforms and
+colour without modifying the supplied options. `OnDraw` still runs before the
+actual draw; returning true skips it (the existing callback convention).
+Drawing without an image or active frame returns an error without invoking
+`OnDraw`; set `CurrentTag = nil` to stop playback and skip Draw while hidden.
+
+## Programmatic sheets and compatibility
+
+For runtime-generated textures, create a `File` with native `Frame` and `Tag`
+values and pass the texture to `CreatePlayerWithImage`. Give frames explicit
+`Width`, `Height` and `Duration`. No intermediate text or JSON format is needed.
+
+The legacy text-sheet reader remains available. Frames with zero width or
+height fall back to `File.FrameWidth` / `File.FrameHeight`, preserving uniform
+sheet behaviour. Native JSON imports always retain individual packed sizes.
+
+## Validation
+
+The native reader rejects malformed JSON, empty sheets, duplicate names,
+out-of-bounds regions, nonpositive durations and invalid tag ranges/directions.
+
+```sh
+go test ./...
+```
+
+Tests import Ebitengine and therefore need a display. In a headless development
+environment, use the project's display wrapper, for example
+`ebitenmcp run -- go test ./...` when installed.
