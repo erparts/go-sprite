@@ -4,6 +4,7 @@ package sprite
 import (
 	"errors"
 	"image"
+	"math"
 
 	"github.com/hajimehoshi/ebiten/v2"
 )
@@ -35,7 +36,7 @@ type Player struct {
 	OnTagEnter func(p *Player, t *Tag)
 	OnTagExit  func(p *Player, t *Tag)
 
-	// OnDraw callbacl called just before drawing the sprite, if return false the draw is aborted.
+	// OnDraw runs just before drawing the sprite; returning true aborts the draw.
 	OnDraw func(p *Player, screen, img *ebiten.Image, opts *ebiten.DrawImageOptions) bool
 
 	playDirection int
@@ -75,7 +76,22 @@ func (p *Player) Clone() *Player {
 }
 
 func (p *Player) Draw(screen *ebiten.Image) error {
+	return p.DrawWithOptions(screen, nil)
+}
+
+// DrawWithOptions draws the current frame with caller-supplied transforms. It
+// does not retain or modify the caller's options. OnDraw still runs afterwards.
+func (p *Player) DrawWithOptions(screen *ebiten.Image, options *ebiten.DrawImageOptions) error {
+	if p.img == nil {
+		return errors.New("sprite player has no image")
+	}
+	if _, ok := p.CurrentFrame(); !ok {
+		return errors.New("sprite player has no active frame")
+	}
 	opts := &ebiten.DrawImageOptions{}
+	if options != nil {
+		*opts = *options
+	}
 	sub := p.img.SubImage(image.Rect(p.CurrentFrameCoords())).(*ebiten.Image)
 
 	if p.OnDraw != nil {
@@ -129,15 +145,18 @@ func (p *Player) Update(dt float32) {
 
 	t := p.CurrentTag
 	p.frameCounter += dt * p.PlaySpeed
-	frameDur := p.File.Frames[p.FrameIndex].Duration
 	p.prevUVX, p.prevUVY = p.CurrentUVCoords()
 
-	for p.frameCounter >= frameDur {
+	for {
+		frameDur := p.File.Frames[p.FrameIndex].Duration
+		if frameDur <= 0 || p.frameCounter < frameDur {
+			break
+		}
 		p.frameCounter -= frameDur
 		p.PrevFrameIndex = p.FrameIndex
 		p.FrameIndex += p.playDirection
 
-		if t.Direction == PlayPingPong {
+		if t.Direction == PlayPingPong && t.Start != t.End {
 			if p.FrameIndex > t.End {
 				p.FrameIndex = t.End - 1
 				p.playDirection *= -1
@@ -167,6 +186,77 @@ func (p *Player) Update(dt float32) {
 
 		p.pollTagChanges()
 	}
+}
+
+// Seek samples the current tag at an absolute time in seconds without firing
+// callbacks. Negative times select the beginning. If loop is false, times past
+// the end select the final frame with progress 1. This does not change Update's
+// looping policy. PlaySpeed is not applied to an absolute time.
+func (p *Player) Seek(seconds float32, loop bool) error {
+	if p.CurrentTag == nil {
+		return errors.New("sprite player has no active tag")
+	}
+	if math.IsNaN(float64(seconds)) || math.IsInf(float64(seconds), 0) {
+		return errors.New("invalid seek time")
+	}
+	t := p.CurrentTag
+	n := t.End - t.Start + 1
+	if n <= 0 || t.Start < 0 || t.End >= len(p.File.Frames) {
+		return errors.New("invalid animation range")
+	}
+	count := n
+	if t.Direction == PlayPingPong && n > 1 {
+		count = 2*n - 2
+	}
+	indexAt := func(step int) int {
+		if t.Direction == PlayBackward {
+			return t.End - step
+		}
+		if step >= n {
+			return t.End - (step - n + 1)
+		}
+		return t.Start + step
+	}
+	total := float64(0)
+	for step := 0; step < count; step++ {
+		d := float64(p.File.Frames[indexAt(step)].Duration)
+		if d <= 0 || math.IsNaN(d) || math.IsInf(d, 0) {
+			return errors.New("invalid frame duration")
+		}
+		total += d
+	}
+	remaining := math.Max(0, float64(seconds))
+	if loop {
+		remaining = math.Mod(remaining, total)
+	} else {
+		remaining = math.Min(remaining, total)
+	}
+	p.prevUVX, p.prevUVY = p.CurrentUVCoords()
+	p.PrevFrameIndex = p.FrameIndex
+	for step := 0; step < count; step++ {
+		index := indexAt(step)
+		d := float64(p.File.Frames[index].Duration)
+		if remaining < d || step == count-1 {
+			p.FrameIndex = index
+			p.frameCounter = float32(math.Min(remaining, d))
+			p.playDirection = 1
+			if t.Direction == PlayBackward || (t.Direction == PlayPingPong && step >= n-1 && n > 1) {
+				p.playDirection = -1
+			}
+			return nil
+		}
+		remaining -= d
+	}
+	return nil
+}
+
+// FrameProgress returns elapsed time within the current frame, from 0 to 1.
+func (p *Player) FrameProgress() float32 {
+	frame, ok := p.CurrentFrame()
+	if !ok || frame.Duration <= 0 {
+		return 0
+	}
+	return max(0, min(1, p.frameCounter/frame.Duration))
 }
 
 // TouchingTags returns the tags currently being touched by the Player (tag).
@@ -229,7 +319,14 @@ func (p *Player) CurrentFrameCoords() (int, int, int, int) {
 		return -1, -1, -1, -1
 	}
 
-	return frame.X, frame.Y, frame.X + int(p.File.FrameWidth), frame.Y + int(p.File.FrameHeight)
+	w, h := frame.Width, frame.Height
+	if w == 0 {
+		w = int(p.File.FrameWidth)
+	}
+	if h == 0 {
+		h = int(p.File.FrameHeight)
+	}
+	return frame.X, frame.Y, frame.X + w, frame.Y + h
 
 }
 

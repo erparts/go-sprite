@@ -1,6 +1,7 @@
 package sprite
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -54,56 +55,85 @@ func OpenAseprite(jsonPath string) (*File, error) {
 // ReadAseprite returns a *goaseprite.File for a given sequence of bytes read from an Aseprite JSON file.
 func ReadAseprite(data []byte) (*File, error) {
 	f := &File{}
-	return f, f.decode(data)
-
+	if err := f.decode(data); err != nil {
+		return nil, err
+	}
+	return f, nil
 }
 
 func (f *File) decode(data []byte) error {
 	json := string(data)
+	if !gjson.Valid(json) {
+		return fmt.Errorf("invalid Aseprite JSON")
+	}
 
 	f.ImagePath = filepath.Clean(gjson.Get(json, "meta.image").String())
 
-	frameNames := []string{}
-
 	f.Width = int32(gjson.Get(json, "meta.size.w").Num)
 	f.Height = int32(gjson.Get(json, "meta.size.h").Num)
+	if f.Width <= 0 || f.Height <= 0 {
+		return fmt.Errorf("invalid Aseprite atlas size")
+	}
 
 	for _, key := range gjson.Get(json, "meta.layers").Array() {
 		f.Layers = append(f.Layers, Layer{Name: key.Get("name").String(), Opacity: uint8(key.Get("opacity").Int()), BlendMode: key.Get("blendMode").String()})
 	}
 
-	for key := range gjson.Get(json, "frames").Map() {
-		frameNames = append(frameNames, key)
+	frames := gjson.Get(json, "frames")
+	var names []string
+	var entries []gjson.Result
+	if frames.IsArray() {
+		entries = frames.Array()
+		for _, entry := range entries {
+			names = append(names, entry.Get("filename").String())
+		}
+	} else if frames.IsObject() {
+		byName := frames.Map()
+		for name := range byName {
+			names = append(names, name)
+		}
+		// Preserve conventional Aseprite numeric ordering, with a deterministic
+		// lexical fallback for named atlas regions and names without extensions.
+		sort.Slice(names, func(i, j int) bool {
+			a, aok := asepriteFrameNumber(names[i])
+			b, bok := asepriteFrameNumber(names[j])
+			if aok != bok {
+				return aok
+			}
+			if aok && bok && a != b {
+				return a < b
+			}
+			return names[i] < names[j]
+		})
+		for _, name := range names {
+			entries = append(entries, byName[name])
+		}
+	} else {
+		return fmt.Errorf("Aseprite frames must be an array or object")
 	}
-
-	sort.Slice(frameNames, func(i, j int) bool {
-		x := frameNames[i]
-		y := frameNames[j]
-		xfi := strings.LastIndex(x, " ") + 1
-		xli := strings.LastIndex(x, ".")
-		xv, _ := strconv.ParseInt(x[xfi:xli], 10, 32)
-		yfi := strings.LastIndex(y, " ") + 1
-		yli := strings.LastIndex(y, ".")
-		yv, _ := strconv.ParseInt(y[yfi:yli], 10, 32)
-		return xv < yv
-	})
-
-	for _, key := range frameNames {
-		frameName := key
-		frameName = strings.Replace(frameName, ".", `\.`, -1)
-		frameData := gjson.Get(json, "frames."+frameName)
-
-		frame := Frame{}
-		frame.X = int(frameData.Get("frame.x").Num)
-		frame.Y = int(frameData.Get("frame.y").Num)
-		frame.Duration = float32(frameData.Get("duration").Num) / 1000
-
+	if len(entries) == 0 {
+		return fmt.Errorf("Aseprite atlas has no frames")
+	}
+	seen := map[string]bool{}
+	for i, entry := range entries {
+		name := names[i]
+		if name == "" || seen[name] {
+			return fmt.Errorf("empty or duplicate frame name %q", name)
+		}
+		seen[name] = true
+		if entry.Get("rotated").Bool() || entry.Get("trimmed").Bool() {
+			return fmt.Errorf("frame %q: rotated/trimmed frames are not supported; export without rotation or trimming", name)
+		}
+		frame := Frame{Name: name, X: int(entry.Get("frame.x").Int()), Y: int(entry.Get("frame.y").Int()),
+			Width: int(entry.Get("frame.w").Int()), Height: int(entry.Get("frame.h").Int()),
+			Duration: float32(entry.Get("duration").Float() / 1000)}
+		if frame.Width <= 0 || frame.Height <= 0 || frame.X < 0 || frame.Y < 0 ||
+			frame.X > int(f.Width)-frame.Width || frame.Y > int(f.Height)-frame.Height || frame.Duration <= 0 {
+			return fmt.Errorf("frame %q: invalid bounds or duration", name)
+		}
 		f.Frames = append(f.Frames, frame)
-
-		// We want to set it only on the first frame loaded
-		if f.FrameWidth == 0 {
-			f.FrameWidth = int32(frameData.Get("sourceSize.w").Num)
-			f.FrameHeight = int32(frameData.Get("sourceSize.h").Num)
+		if i == 0 {
+			f.FrameWidth, f.FrameHeight = int32(frame.Width), int32(frame.Height)
 		}
 	}
 
@@ -120,18 +150,30 @@ func (f *File) decode(data []byte) error {
 
 	for _, anim := range gjson.Get(json, "meta.frameTags").Array() {
 		animName := anim.Get("name").Str
+		if _, exists := f.Tags[animName]; exists {
+			return fmt.Errorf("duplicate Aseprite tag %q", animName)
+		}
+		from, to := int(anim.Get("from").Int()), int(anim.Get("to").Int())
+		direction := Direction(anim.Get("direction").Str)
+		if direction == "" {
+			direction = PlayForward
+		}
+		if animName == "" || from < 0 || to < from || to >= len(f.Frames) ||
+			(direction != PlayForward && direction != PlayBackward && direction != PlayPingPong) {
+			return fmt.Errorf("invalid Aseprite tag %q", animName)
+		}
 
 		f.Tags[animName] = &Tag{
 			Name:      animName,
-			Start:     int(anim.Get("from").Num),
-			End:       int(anim.Get("to").Num),
-			Direction: Direction(anim.Get("direction").Str),
+			Start:     from,
+			End:       to,
+			Direction: direction,
 			File:      f,
 		}
 	}
 
 	for _, sliceData := range gjson.Get(json, "meta.slices").Array() {
-		color, _ := strconv.ParseInt("0x"+sliceData.Get("color").Str[1:], 0, 64)
+		color, _ := strconv.ParseInt(strings.TrimPrefix(sliceData.Get("color").Str, "#"), 16, 64)
 
 		newSlice := Slice{
 			Name:  sliceData.Get("name").Str,
@@ -155,6 +197,22 @@ func (f *File) decode(data []byte) error {
 	return nil
 }
 
+func asepriteFrameNumber(name string) (int64, bool) {
+	stem := strings.TrimSuffix(name, filepath.Ext(name))
+	n, err := strconv.ParseInt(stem[strings.LastIndex(stem, " ")+1:], 10, 64)
+	return n, err == nil
+}
+
+// FrameByName returns a named region from an Aseprite export.
+func (f *File) FrameByName(name string) (Frame, bool) {
+	for _, frame := range f.Frames {
+		if frame.Name == name {
+			return frame, true
+		}
+	}
+	return Frame{}, false
+}
+
 // SliceByName returns a Slice that has the name specified and a boolean indicating whether it could be found or not.
 // Note that a File can have multiple Slices by the same name.
 func (f *File) SliceByName(sliceName string) (Slice, bool) {
@@ -174,8 +232,10 @@ func (f *File) HasSlice(sliceName string) bool {
 
 // Frame contains timing and position information for the frame on the spritesheet.
 type Frame struct {
-	X, Y     int
-	Duration float32 // The duration of the frame in seconds.
+	X, Y          int
+	Duration      float32 // The duration of the frame in seconds.
+	Name          string  // The exported filename/region name, when available.
+	Width, Height int     // Packed dimensions. Zero uses File.FrameWidth/FrameHeight for legacy files.
 }
 
 // Slice represents a Slice (rectangle) that was defined in Aseprite and exported in the JSON file.
