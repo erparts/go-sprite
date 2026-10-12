@@ -43,12 +43,16 @@ Import as `sprite "github.com/erparts/go-sprite"`. With embedded files, use
 frame metadata without creating another file. Each `Player` has independent
 playback state, while its `File` and image can be shared.
 
-`Play("")` selects all frames. `Play` supports forward, reverse and ping-pong
+`Play("")` selects all frames. `Play` supports forward, reverse, ping-pong and reverse ping-pong
 animation. `Update` advances through each frame's own duration and loops.
+`Play` on the active tag preserves its position; use `Restart` to rewind it.
+`Clone` shares the immutable file and texture while copying playback and callbacks.
+Aseprite tag `repeat` is currently ignored: `Update` loops until the caller stops it.
 Callbacks on the player report loops, frame changes and tag transitions.
 
 `Seek(seconds, loop)` samples an absolute position without callbacks. With
-`loop=false` it clamps to the final frame. This is useful for replay, paused
+`loop=false` it clamps to the final frame of one cycle: a ping-pong cycle
+omits the duplicated endpoints (0,1,2,1; reverse: 2,1,0,1). This is useful for replay, paused
 previews and externally controlled clocks. `FrameProgress()` exposes the
 fraction elapsed in the current frame, including 1 at a clamped endpoint.
 Seeking does not change the looping behaviour of subsequent `Update` calls.

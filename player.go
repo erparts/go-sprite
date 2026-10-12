@@ -61,18 +61,8 @@ func (f *File) CreatePlayerWithImage(img *ebiten.Image) *Player {
 
 // Clone clones the Player.
 func (p *Player) Clone() *Player {
-	newPlayer := p.File.CreatePlayer()
-	newPlayer.PlaySpeed = p.PlaySpeed
-	newPlayer.CurrentTag = p.CurrentTag
-	newPlayer.FrameIndex = p.FrameIndex
-	newPlayer.frameCounter = p.frameCounter
-
-	newPlayer.OnLoop = p.OnLoop
-	newPlayer.OnFrameChange = p.OnFrameChange
-	newPlayer.OnTagEnter = p.OnTagEnter
-	newPlayer.OnTagExit = p.OnTagExit
-
-	return newPlayer
+	clone := *p
+	return &clone
 }
 
 func (p *Player) Draw(screen *ebiten.Image) error {
@@ -80,7 +70,7 @@ func (p *Player) Draw(screen *ebiten.Image) error {
 }
 
 // DrawWithOptions draws the current frame with caller-supplied transforms. It
-// does not retain or modify the caller's options. OnDraw still runs afterwards.
+// does not retain or modify the caller's options. OnDraw runs before drawing and can skip the draw.
 func (p *Player) DrawWithOptions(screen *ebiten.Image, options *ebiten.DrawImageOptions) error {
 	if p.img == nil {
 		return errors.New("sprite player has no image")
@@ -104,6 +94,16 @@ func (p *Player) DrawWithOptions(screen *ebiten.Image, options *ebiten.DrawImage
 	return nil
 }
 
+// Restart rewinds a tag even when it is already active.
+func (p *Player) Restart(tagName string) error {
+	if _, ok := p.File.Tags[tagName]; !ok {
+		return ErrNoTagByName
+	}
+	p.CurrentTag = nil
+	return p.Play(tagName)
+}
+
+// Play keeps the current position if the requested tag is already active.
 // Play sets the specified tag name up to be played back. A tagName of "" will play back the entire file.
 func (p *Player) Play(tagName string) error {
 	t, ok := p.File.Tags[tagName]
@@ -125,7 +125,7 @@ func (p *Player) Play(tagName string) error {
 	p.CurrentTag = t
 	p.frameCounter = 0
 
-	if t.Direction == PlayBackward {
+	if t.Direction == PlayBackward || t.Direction == PlayPingPongReverse {
 		p.playDirection = -1
 		p.FrameIndex = p.CurrentTag.End
 	} else {
@@ -156,16 +156,16 @@ func (p *Player) Update(dt float32) {
 		p.PrevFrameIndex = p.FrameIndex
 		p.FrameIndex += p.playDirection
 
-		if t.Direction == PlayPingPong && t.Start != t.End {
+		if (t.Direction == PlayPingPong || t.Direction == PlayPingPongReverse) && t.Start != t.End {
 			if p.FrameIndex > t.End {
 				p.FrameIndex = t.End - 1
 				p.playDirection *= -1
 			} else if p.FrameIndex < t.Start {
 				p.FrameIndex = t.Start + 1
 				p.playDirection *= -1
-				if p.OnLoop != nil {
-					p.OnLoop(p)
-				}
+			}
+			if p.OnLoop != nil && ((t.Direction == PlayPingPong && p.FrameIndex == t.Start) || (t.Direction == PlayPingPongReverse && p.FrameIndex == t.End)) {
+				p.OnLoop(p)
 			}
 
 		} else if p.playDirection > 0 && p.FrameIndex > t.End {
@@ -205,11 +205,14 @@ func (p *Player) Seek(seconds float32, loop bool) error {
 		return errors.New("invalid animation range")
 	}
 	count := n
-	if t.Direction == PlayPingPong && n > 1 {
+	if (t.Direction == PlayPingPong || t.Direction == PlayPingPongReverse) && n > 1 {
 		count = 2*n - 2
 	}
 	indexAt := func(step int) int {
-		if t.Direction == PlayBackward {
+		if t.Direction == PlayBackward || t.Direction == PlayPingPongReverse {
+			if step >= n {
+				return t.Start + step - n + 1
+			}
 			return t.End - step
 		}
 		if step >= n {
@@ -240,7 +243,7 @@ func (p *Player) Seek(seconds float32, loop bool) error {
 			p.FrameIndex = index
 			p.frameCounter = float32(math.Min(remaining, d))
 			p.playDirection = 1
-			if t.Direction == PlayBackward || (t.Direction == PlayPingPong && step >= n-1 && n > 1) {
+			if t.Direction == PlayBackward || (t.Direction == PlayPingPong && step >= n-1 && n > 1) || (t.Direction == PlayPingPongReverse && step < n-1) {
 				p.playDirection = -1
 			}
 			return nil
@@ -304,7 +307,7 @@ func (p *Player) pollTagChanges() {
 
 // CurrentFrame returns the current frame for the currently playing Tag in the File and a boolean indicating if the Player is playing a Tag or not.
 func (p *Player) CurrentFrame() (Frame, bool) {
-	if p.CurrentTag == nil {
+	if p.CurrentTag == nil || p.FrameIndex < 0 || p.FrameIndex >= len(p.File.Frames) {
 		return Frame{}, false
 	}
 
@@ -360,7 +363,7 @@ func (p *Player) SetFrameIndex(frameIndex int) {
 		return
 	}
 
-	p.FrameIndex = p.CurrentTag.Start + frameIndex
+	p.FrameIndex = p.CurrentTag.Start + max(0, frameIndex)
 	if p.FrameIndex > p.CurrentTag.End {
 		p.FrameIndex = p.CurrentTag.End
 	}

@@ -20,6 +20,8 @@ const (
 	PlayBackward Direction = "reverse"
 	// PlayPingPong plays animation forward then backward
 	PlayPingPong Direction = "pingpong"
+	// PlayPingPongReverse starts at the last frame and returns forward.
+	PlayPingPongReverse Direction = "pingpong_reverse"
 )
 
 // File contains all properties of an exported aseprite file. ImagePath is the absolute path to the image as reported by the exported
@@ -159,7 +161,7 @@ func (f *File) decode(data []byte) error {
 			direction = PlayForward
 		}
 		if animName == "" || from < 0 || to < from || to >= len(f.Frames) ||
-			(direction != PlayForward && direction != PlayBackward && direction != PlayPingPong) {
+			(direction != PlayForward && direction != PlayBackward && direction != PlayPingPong && direction != PlayPingPongReverse) {
 			return fmt.Errorf("invalid Aseprite tag %q", animName)
 		}
 

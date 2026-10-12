@@ -2,6 +2,7 @@ package sprite
 
 import (
 	"image"
+	"math"
 	"strings"
 	"testing"
 
@@ -55,8 +56,16 @@ func TestAsepriteHashWithoutNumericNames(t *testing.T) {
 	if f.Frames[0].Name != "short" || f.Frames[1].Name != "wide" {
 		t.Fatal("hash order is unstable")
 	}
-	for _, name := range []string{"test 2.aseprite", "test 10.aseprite", "plain", ""} {
-		asepriteFrameNumber(name)
+	for name, want := range map[string]int64{"test 2.aseprite": 2, "test 10.aseprite": 10} {
+		n, ok := asepriteFrameNumber(name)
+		if !ok || n != want {
+			t.Fatalf("%s: %d/%v", name, n, ok)
+		}
+	}
+	for _, name := range []string{"plain", ""} {
+		if _, ok := asepriteFrameNumber(name); ok {
+			t.Fatal(name)
+		}
 	}
 }
 
@@ -106,7 +115,7 @@ func TestBundledAsepriteExport(t *testing.T) {
 }
 
 func TestSeekMatchesPlaybackAndClampsWithoutCallbacks(t *testing.T) {
-	for _, direction := range []Direction{PlayForward, PlayBackward, PlayPingPong} {
+	for _, direction := range []Direction{PlayForward, PlayBackward, PlayPingPong, PlayPingPongReverse} {
 		f := &File{Frames: []Frame{{Duration: .125}, {Duration: .25}, {Duration: .5}}}
 		f.Tags = map[string]*Tag{"test": {Name: "test", Start: 0, End: 2, Direction: direction, File: f}}
 		p, q := f.CreatePlayer(), f.CreatePlayer()
@@ -127,7 +136,7 @@ func TestSeekMatchesPlaybackAndClampsWithoutCallbacks(t *testing.T) {
 		if err := q.Seek(100, false); err != nil {
 			t.Fatal(err)
 		}
-		want := map[Direction]int{PlayForward: 2, PlayBackward: 0, PlayPingPong: 1}[direction]
+		want := map[Direction]int{PlayForward: 2, PlayBackward: 0, PlayPingPong: 1, PlayPingPongReverse: 1}[direction]
 		if q.FrameIndex != want || q.FrameProgress() != 1 {
 			t.Fatalf("%s did not clamp", direction)
 		}
@@ -135,7 +144,7 @@ func TestSeekMatchesPlaybackAndClampsWithoutCallbacks(t *testing.T) {
 			t.Fatal(err)
 		}
 		want = 0
-		if direction == PlayBackward {
+		if direction == PlayBackward || direction == PlayPingPongReverse {
 			want = 2
 		}
 		if q.FrameIndex != want || q.FrameProgress() != 0 {
@@ -194,5 +203,72 @@ func TestDrawOptionsKeepNativeRegionAndCallerState(t *testing.T) {
 	}
 	if err := f.CreatePlayer().Draw(nil); err == nil {
 		t.Fatal("missing image was accepted")
+	}
+}
+
+func TestReversePingPongExportAndClone(t *testing.T) {
+	data := strings.ReplaceAll(atlasJSON, `"direction":"forward"`, `"direction":"pingpong_reverse","repeat":2`)
+	f, err := ReadAseprite([]byte(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	texture := ebiten.NewImage(64, 32)
+	defer texture.Deallocate()
+	p := f.CreatePlayerWithImage(texture)
+	_ = p.Play("")
+	p.Update(.15)
+	called := false
+	p.OnDraw = func(_ *Player, _, _ *ebiten.Image, _ *ebiten.DrawImageOptions) bool { called = true; return true }
+	q := p.Clone()
+	if err := q.Draw(nil); err != nil || !called {
+		t.Fatalf("clone lost texture/callback: %v", err)
+	}
+	q.Update(.07)
+	if q.frameCounter == p.frameCounter {
+		t.Fatal("clone shares playback")
+	}
+	if q.img != p.img || q.playDirection != p.playDirection {
+		t.Fatal("clone lost state")
+	}
+	_ = q.Play("")
+	if q.FrameIndex != 1 {
+		t.Fatal("Play restarted")
+	}
+	_ = q.Restart("")
+	if q.FrameIndex != 0 || q.FrameProgress() != 0 {
+		t.Fatal("Restart did not rewind")
+	}
+}
+
+func TestDecimalTimingsAndReverseLoop(t *testing.T) {
+	for _, d := range []Direction{PlayForward, PlayBackward, PlayPingPong, PlayPingPongReverse} {
+		f := &File{Frames: []Frame{{Duration: .095}, {Duration: .15}, {Duration: .205}, {Duration: .26}}}
+		f.Tags = map[string]*Tag{"a": {Start: 0, End: 3, Direction: d, File: f}}
+		p, q := f.CreatePlayer(), f.CreatePlayer()
+		_ = p.Play("a")
+		_ = q.Play("a")
+		for i := 1; i < 1000; i++ {
+			p.Update(.013)
+			_ = q.Seek(float32(i)*.013, true)
+			boundary := (p.FrameProgress() > .9997 && q.FrameProgress() < .0003) || (q.FrameProgress() > .9997 && p.FrameProgress() < .0003)
+			if !boundary && (p.FrameIndex != q.FrameIndex || math.Abs(float64(p.FrameProgress()-q.FrameProgress())) > .0003) {
+				t.Fatalf("%s %d: %d/%f vs %d/%f", d, i, p.FrameIndex, p.FrameProgress(), q.FrameIndex, q.FrameProgress())
+			}
+		}
+	}
+	f := &File{Frames: []Frame{{Duration: .125}, {Duration: .125}, {Duration: .125}}}
+	f.Tags = map[string]*Tag{"a": {Start: 0, End: 2, Direction: PlayPingPongReverse, File: f}}
+	p := f.CreatePlayer()
+	_ = p.Play("a")
+	loops := 0
+	p.OnLoop = func(*Player) { loops++ }
+	for i, want := range []int{1, 0, 1, 2} {
+		p.Update(.125)
+		if p.FrameIndex != want || (i < 3 && loops != 0) {
+			t.Fatal(i, p.FrameIndex, loops)
+		}
+	}
+	if loops != 1 {
+		t.Fatal(loops)
 	}
 }
